@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mushaf Digital - Auto Scroll & Word Sync</title>
+  
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Amiri:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --bg-canvas: #090d16;
+      --card-bg: #131b2e;
+      --card-border: #1e293b;
+      --text-main: #f1f5f9;
+      --text-muted: #94a3b8;
+      
+      --active-word-bg: rgba(245, 158, 11, 0.35);
+      --active-word-border: #f59e0b;
+      --active-ayah-bg: rgba(30, 41, 59, 0.7);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    /* Scroll halus bawaan browser */
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      background-color: var(--bg-canvas);
+      color: var(--text-main);
+      font-family: system-ui, -apple-system, sans-serif;
+      padding: 1.5rem 1rem 6.5rem;
+      display: flex;
+      justify-content: center;
+    }
+
+    .mushaf-container {
+      width: 100%;
+      max-width: 760px;
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+    }
+
+    .surah-picker {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      padding: 0.85rem 1.25rem;
+      display: flex;
+      gap: 1rem;
+      align-items: center;
+      position: sticky;
+      top: 1rem;
+      z-index: 50;
+      backdrop-filter: blur(8px);
+    }
+
+    .surah-picker select {
+      background: #1e293b;
+      color: var(--text-main);
+      border: 1px solid #334155;
+      border-radius: 6px;
+      padding: 0.6rem 0.8rem;
+      font-size: 0.95rem;
+      outline: none;
+      flex: 1;
+    }
+
+    .ayah-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 1.25rem 1.5rem;
+      transition: background 0.25s ease, border-color 0.25s ease, transform 0.2s ease;
+    }
+
+    /* Efek visual saat ayat aktif */
+    .ayah-card.active-ayah {
+      border-color: #f59e0b;
+      background-color: var(--active-ayah-bg);
+      box-shadow: 0 0 16px rgba(245, 158, 11, 0.15);
+    }
+
+    .ayah-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.75rem;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+
+    .ayah-badge {
+      background: #1e293b;
+      padding: 2px 10px;
+      border-radius: 20px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+
+    .ayah-arabic {
+      direction: rtl;
+      font-size: 2.1rem;
+      line-height: 2.4;
+      text-align: right;
+      font-family: 'Amiri', 'Traditional Arabic', serif;
+      word-spacing: 5px;
+    }
+
+    .word {
+      display: inline-block;
+      padding: 0 4px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.12s ease-in-out;
+      user-select: none;
+    }
+
+    .word:hover {
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    .word.is-playing {
+      background-color: var(--active-word-bg);
+      outline: 2px solid var(--active-word-border);
+      color: #ffffff !important;
+      transform: translateY(-2px) scale(1.03);
+      box-shadow: 0 4px 12px rgba(245, 158, 11, 0.35);
+    }
+
+    .ayah-translation {
+      margin-top: 0.85rem;
+      font-size: 0.95rem;
+      line-height: 1.6;
+      color: var(--text-muted);
+    }
+
+    .loading-state {
+      text-align: center;
+      padding: 3rem 1rem;
+      color: var(--text-muted);
+    }
+
+    .sticky-player {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: rgba(19, 27, 46, 0.95);
+      backdrop-filter: blur(10px);
+      border-top: 1px solid var(--card-border);
+      padding: 0.85rem 1.25rem;
+      display: flex;
+      justify-content: center;
+      z-index: 100;
+    }
+
+    .player-inner {
+      width: 100%;
+      max-width: 760px;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    .player-info {
+      flex: 1;
+      font-size: 0.85rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    audio {
+      flex: 2;
+      height: 38px;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="mushaf-container">
+    <div class="surah-picker">
+      <label for="surahSelect" style="font-size:0.9rem; color:var(--text-muted);">Pilih Surah:</label>
+      <select id="surahSelect">
+        <option value="">Memuat daftar 114 surah...</option>
+      </select>
+    </div>
+
+    <div id="mushafFeed">
+      <div class="loading-state">Menyiapkan mushaf...</div>
+    </div>
+  </div>
+
+  <div class="sticky-player">
+    <div class="player-inner">
+      <div class="player-info" id="playerStatus">Menunggu data audio...</div>
+      <audio id="globalAudio" controls preload="metadata"></audio>
+    </div>
+  </div>
+
+  <script>
+    let currentAyahsData = [];
+    let currentAyahIndex = 0;
+    let activeWordEl = null;
+
+    const surahSelect = document.getElementById("surahSelect");
+    const mushafFeed = document.getElementById("mushafFeed");
+    const audio = document.getElementById("globalAudio");
+    const playerStatus = document.getElementById("playerStatus");
+
+    const RECITER_ID = 7; // Mishary Rashid Alafasy
+
+    async function initSurahList() {
+      try {
+        const res = await fetch("https://api.quran.com/api/v4/chapters?language=id");
+        if (!res.ok) throw new Error("Gagal mengambil daftar surah");
+        
+        const data = await res.json();
+        if (!data.chapters || !Array.isArray(data.chapters)) return;
+
+        surahSelect.innerHTML = "";
+        data.chapters.forEach(ch => {
+          const opt = document.createElement("option");
+          opt.value = ch.id;
+          opt.textContent = `${ch.id}. ${ch.name_simple} (${ch.translated_name.name}) - ${ch.verses_count} Ayat`;
+          surahSelect.appendChild(opt);
+        });
+
+        loadSurah(1);
+      } catch (err) {
+        surahSelect.innerHTML = '<option value="">Gagal memuat daftar surah</option>';
+        console.error(err);
+      }
+    }
+
+    async function fetchAllVerses(chapterId) {
+      let page = 1;
+      let totalPages = 1;
+      let allVerses = [];
+
+      while (page <= totalPages) {
+        const url = `https://api.quran.com/api/v4/verses/by_chapter/${chapterId}?language=id&words=true&word_fields=text_uthmani&translations=33&per_page=50&page=${page}`;
+        const res = await fetch(url);
+        if (!res.ok) throw new Error("Gagal mengambil teks ayat");
+
+        const data = await res.json();
+        allVerses = allVerses.concat(data.verses || []);
+        totalPages = data.pagination?.total_pages || 1;
+        page++;
+      }
+
+      return allVerses;
+    }
+
+    async function fetchAllAudioFiles(chapterId) {
+      let page = 1;
+      let totalPages = 1;
+      let allAudioFiles = [];
+
+      while (page <= totalPages) {
+        const url = `https://api.quran.com/api/v4/recitations/${RECITER_ID}/by_chapter/${chapterId}?per_page=50&segments=true&page=${page}`;
+        const res = await fetch(url);
+        if (!res.ok) throw new Error("Gagal mengambil data audio");
+
+        const data = await res.json();
+        allAudioFiles = allAudioFiles.concat(data.audio_files || []);
+        totalPages = data.pagination?.total_pages || 1;
+        page++;
+      }
+
+      return allAudioFiles;
+    }
+
+    async function loadSurah(chapterId) {
+      mushafFeed.innerHTML = '<div class="loading-state">Memuat ayat dan segmen audio...</div>';
+      audio.pause();
+      clearHighlight();
+
+      try {
+        const [rawVerses, rawAudioFiles] = await Promise.all([
+          fetchAllVerses(chapterId),
+          fetchAllAudioFiles(chapterId)
+        ]);
+
+        currentAyahsData = rawVerses.map(v => {
+          const audioItem = rawAudioFiles.find(a => a.verse_key === v.verse_key);
+          
+          return {
+            verseKey: v.verse_key,
+            verseNumber: v.verse_number,
+            translation: v.translations?.[0]?.text?.replace(/<sup.*?<\/sup>/g, "") || "",
+            words: (v.words || []).map(w => ({
+              id: w.position,
+              text: w.text_uthmani || w.text || ""
+            })),
+            audioUrl: audioItem?.url ? `https://verses.quran.com/${audioItem.url}` : "",
+            segments: audioItem?.segments || []
+          };
+        });
+
+        renderMushaf(currentAyahsData);
+        loadAndPlayAyah(0, false, 0, false); // Inisialisasi awal tanpa auto-scroll
+      } catch (err) {
+        mushafFeed.innerHTML = `<div class="loading-state" style="color:#f87171;">Terjadi kesalahan: ${err.message}</div>`;
+      }
+    }
+
+    function renderMushaf(ayahs) {
+      mushafFeed.innerHTML = "";
+      const fragment = document.createDocumentFragment();
+
+      ayahs.forEach((ayah, aIdx) => {
+        const card = document.createElement("div");
+        card.className = "ayah-card";
+        card.id = `card-ayah-${aIdx}`;
+
+        const header = document.createElement("div");
+        header.className = "ayah-header";
+        header.innerHTML = `<span>QS. ${ayah.verseKey}</span><span class="ayah-badge">Ayat ${ayah.verseNumber}</span>`;
+
+        const arabicP = document.createElement("div");
+        arabicP.className = "ayah-arabic";
+
+        ayah.words.forEach(w => {
+          const span = document.createElement("span");
+          span.className = "word";
+          span.dataset.wordId = w.id;
+          span.textContent = w.text;
+
+          span.addEventListener("click", () => {
+            playSpecificAyahAndWord(aIdx, w.id);
+          });
+
+          arabicP.appendChild(span);
+          arabicP.appendChild(document.createTextNode(" "));
+        });
+
+        const transP = document.createElement("div");
+        transP.className = "ayah-translation";
+        transP.innerHTML = ayah.translation;
+
+        card.appendChild(header);
+        card.appendChild(arabicP);
+        card.appendChild(transP);
+        fragment.appendChild(card);
+      });
+
+      mushafFeed.appendChild(fragment);
+    }
+
+    // Fungsi Pengatur Audio + Otomatis Scroll ke Tengah
+    function loadAndPlayAyah(index, autoPlay = true, startOffsetSec = 0, shouldScroll = true) {
+      if (!currentAyahsData[index]) return;
+
+      currentAyahIndex = index;
+      const currentAyah = currentAyahsData[currentAyahIndex];
+
+      document.querySelectorAll(".ayah-card").forEach(c => c.classList.remove("active-ayah"));
+      const currentCard = document.getElementById(`card-ayah-${currentAyahIndex}`);
+      
+      if (currentCard) {
+        currentCard.classList.add("active-ayah");
+
+        // FITUR BARU: Otomatis scroll layar agar ayat aktif tepat berada di tengah
+        if (shouldScroll) {
+          currentCard.scrollIntoView({
+            behavior: "smooth",
+            block: "center"
+          });
+        }
+      }
+
+      playerStatus.textContent = `Memutar QS. ${currentAyah.verseKey}`;
+      audio.src = currentAyah.audioUrl;
+
+      audio.onloadedmetadata = () => {
+        if (startOffsetSec > 0) {
+          audio.currentTime = startOffsetSec;
+        }
+        if (autoPlay) {
+          audio.play().catch(() => {});
+        }
+      };
+    }
+
+    function playSpecificAyahAndWord(ayahIdx, wordId) {
+      const ayah = currentAyahsData[ayahIdx];
+      const segment = ayah.segments.find(s => s[0] === wordId);
+      const startMs = segment ? segment[1] : 0;
+
+      if (currentAyahIndex !== ayahIdx || audio.src !== ayah.audioUrl) {
+        loadAndPlayAyah(ayahIdx, true, startMs / 1000, true);
+      } else {
+        audio.currentTime = startMs / 1000;
+        audio.play();
+      }
+    }
+
+    function clearHighlight() {
+      if (activeWordEl) {
+        activeWordEl.classList.remove("is-playing");
+        activeWordEl = null;
+      }
+    }
+
+    audio.addEventListener("timeupdate", () => {
+      const currentMs = audio.currentTime * 1000;
+      const activeAyah = currentAyahsData[currentAyahIndex];
+      if (!activeAyah) return;
+
+      const activeSegment = activeAyah.segments.find(
+        seg => currentMs >= seg[1] && currentMs < seg[2]
+      );
+
+      if (activeSegment) {
+        const wordId = activeSegment[0];
+        if (activeWordEl && activeWordEl.dataset.wordId === String(wordId)) {
+          return;
+        }
+
+        clearHighlight();
+
+        const card = document.getElementById(`card-ayah-${currentAyahIndex}`);
+        if (card) {
+          const targetWord = card.querySelector(`[data-word-id="${wordId}"]`);
+          if (targetWord) {
+            targetWord.classList.add("is-playing");
+            activeWordEl = targetWord;
+          }
+        }
+      } else {
+        clearHighlight();
+      }
+    });
+
+    // Saat ayat habis, otomatis pindah dan layar otomatis scroll ke ayat selanjutnya
+    audio.addEventListener("ended", () => {
+      clearHighlight();
+      if (currentAyahIndex + 1 < currentAyahsData.length) {
+        loadAndPlayAyah(currentAyahIndex + 1, true, 0, true);
+      } else {
+        playerStatus.textContent = "Surah selesai.";
+      }
+    });
+
+    surahSelect.addEventListener("change", (e) => {
+      if (e.target.value) {
+        loadSurah(e.target.value);
+      }
+    });
+
+    initSurahList();
+  </script>
+</body>
+</html>
